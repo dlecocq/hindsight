@@ -1,0 +1,135 @@
+var hindsight = require('../lib/hindsight');
+var should    = require('should');
+var wrench    = require('wrench');
+var fs        = require('fs');
+
+describe('DB', function() {
+    var db = null;
+    
+    beforeEach(function() {
+        db = new hindsight.DB('test');
+    });
+    
+    afterEach(function(done) {
+        wrench.rmdirRecursive('test', done);
+    });
+    
+    it('should make directories', function() {
+        /* When necessary, it should create the directory it resides in */
+        (function() {
+            fs.statSync('foo/bar');
+        }).should.throw();
+        var db = new hindsight.DB('foo/bar');
+        fs.statSync('foo/bar').isDirectory().should.be.true;
+        fs.rmdirSync('foo/bar');
+        fs.rmdirSync('foo');
+    });
+    
+    describe('metrics', function() {
+        it('should instantiate metrics as needed', function() {
+            /* Instantiates */
+            var m = db.metric('widget');
+            should.exist(m);
+            /* Retrieves */
+            db.metric('widget').should.eql(m);
+        });
+        
+        it('knows its own name and database', function() {
+            var m = db.metric('widget');
+            m.name.should.equal('widget');
+            m.db.should.equal(db);
+        });
+        
+        it('can remove single metrics', function() {
+            /* A metric should be correctly removed (from its parent) */
+            var m = db.metric('widget/bar');
+            m.parent.name.should.equal(db.metric('widget').name);
+            m.parent.children.length.should.equal(1);
+            db.metric('widget').children.length.should.equal(1);
+            db.metric('widget').children[0].should.equal(m);
+            db.remove('widget/bar');
+            db.metric('widget').children.length.should.equal(0);
+        });
+        
+        it('can recursively remove children', function() {
+            for (var i = 0; i < 10; i++) {
+                var m = db.metric('widget/' + i);
+            }
+            db.metric('widget').children.length.should.equal(10);
+            db.remove('widget/*');
+            db.metric('widget').children.length.should.equal(0);
+        });
+        
+        it('can remove non-existent metrics', function() {
+            var m = db.metric('widget');
+            db.remove('widget');
+            db.remove('widget');
+        });
+        
+        it('cannot remove a metric with children', function() {
+            var m = db.metric('widget');
+            for (var i = 0; i < 10; i++) {
+                var n = db.metric('widget/' + i);
+            }
+            m.children.length.should.equal(10);
+            db.remove('widget');
+            db.metric('widget').should.equal(m);
+        });
+    });
+    
+    describe('callbacks', function() {
+        it('invoke and cancel the `new` callback', function(done) {
+            var s = db.on('new', function(name) {
+                name.should.equal('new');
+            });
+            var m = db.metric('new');
+            s.off();
+            m = db.metric('not-new');
+            setTimeout(function() { done(); }, 10);
+        });
+                
+        it('invoke and cancel the `remove` callback', function(done) {
+            var s = db.on('remove', function(name) {
+                name.should.equal('remove');
+            });
+            var m = db.metric('remove');
+            db.remove('remove');
+            s.off();
+            var m = db.metric('not-remove');
+            db.remove('not-remove');
+            setTimeout(function() { done(); }, 10);
+        });
+        
+        it('invoke and cancel the metric data callback', function(done) {
+            should.exist(null);
+            done();
+        });
+        
+        it('can repeatedly add and remove callbacks safely', function(done) {
+            should.exist(null);
+            done();
+        });
+    });
+    
+    describe('alarms', function() {
+        it('can set basic alarms', function(done) {
+            should.exist(null);
+            done();
+        });
+        
+        it('can turn off basic alarms', function(done) {
+            should.exist(null);
+            done();
+        });
+    });
+    
+    describe('config', function() {
+        it('should be configurable', function() {
+            should.exist(null);
+        });
+        
+        it('has metrics inherit its configuration', function() {
+            should.exist(null);
+        });
+    });
+});

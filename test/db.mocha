@@ -78,48 +78,287 @@ describe('DB', function() {
     });
     
     describe('callbacks', function() {
-        it('invoke and cancel the `new` callback', function(done) {
+        it('invokes the `new` callback', function(done) {
             var s = db.on('new', function(name) {
                 name.should.equal('new');
+                done();
             });
             var m = db.metric('new');
+        });
+        
+        it('can remove subscriptions to `new`', function(done) {
+            var s = db.on('new', function(name) {
+                /* Fail if this fires */
+                name.should.equal('new');
+            });
             s.off();
-            m = db.metric('not-new');
+            var m = db.metric('not-new');
             setTimeout(function() { done(); }, 10);
         });
-                
-        it('invoke and cancel the `remove` callback', function(done) {
+        
+        it('invoke the `remove` callback', function(done) {
             var s = db.on('remove', function(name) {
                 name.should.equal('remove');
+                done();
             });
             var m = db.metric('remove');
             db.remove('remove');
+        });
+        
+        it('can remove subscriptions to `remove`', function(done) {
+            var s = db.on('remove', function(name) {
+                /* Fail if this fires */
+                name.should.equal('remove');
+            });
             s.off();
             var m = db.metric('not-remove');
             db.remove('not-remove');
             setTimeout(function() { done(); }, 10);
         });
         
-        it('invoke and cancel the metric data callback', function(done) {
-            should.exist(null);
-            done();
+        it('invoke the metric data callback', function(done) {
+            var s = db.on('metric', function(t, ct, avg, min, max, p) {
+                t.should.equal(1);
+                ct.should.equal(2);
+                avg.should.equal(3);
+                min.should.equal(4);
+                max.should.equal(5);
+                p.should.equal(6);
+                done();
+            });
+            db.add('metric', 1, 2, 3, 4, 5, 6);
+        });
+        
+        it('can remove subscriptions to metric data', function(done) {
+            var s = db.on('metric', function(name, data) {
+                /* Fail if this fires */
+                name.should.equal('metric');
+            });
+            s.off();
+            db.add('not-metric', 2, 3, 4, 5, 6, 7);
+            setTimeout(function() { done(); }, 10);
         });
         
         it('can repeatedly add and remove callbacks safely', function(done) {
+            var subscriptions = [];
+            for (var i = 0; i < 100; ++i) {
+                var s = db.on('new', function(name) {
+                    name.should.equal('new');
+                });
+                s.off();
+                s = db.on('new', function(name) {
+                    name.should.equal('new');
+                });
+                subscriptions.push(s);
+            }
+            for (var i = 0; i < 100; ++i) {
+                subscriptions[i].off()
+            }
+            db.metric('not-new');
+            setTimeout(function() { done(); }, 10);
+        });
+        
+        it('can survive unsubscribing a dead subscription', function() {
+            var s = db.on('new', function(name) {
+                console.log(name);
+            });
+            for (var i = 0; i < 100; ++i) {
+                s.off();
+            }
+        });
+    });
+    
+    describe('add-get', function() {
+        it('can add data to a metric', function() {
+            db.add('foo', 1, 2, 3, 4, 5, 6);
+        });
+        
+        it('can get data out of a metric', function() {
+            db.add('foo', 1, 2, 3, 4, 5, 6);
+            db.get('foo', 0, 10).should.eql([
+                [1, 2, 3, 4, 5, 6]
+            ]);
+        });
+        
+        it('can get a range of data', function() {
+            for (var i = 0; i < 100; ++i) {
+                db.add('foo', i, 2, 3, 4, 5, 6);
+            }
+            var results = db.get('foo', 40, 50);
+            results.length.should.equal(11);
+            for (var i = 0; i < 11; ++i) {
+                results[i][0].should.equal(i+40);
+            }
+        });
+        
+        it('adds data to parent metrics', function() {
+            for (var i = 0; i < 100; ++i) {
+                for (var j = 0; j < 10; ++j) {
+                    db.add('foo/' + j, i, 2, 3, 4, 5, 6);
+                }
+            }
+            var results = db.get('foo', 40, 50);
+            /* Data from each of the children */
+            results.length.should.equal(110);
+        });
+    });
+    
+    describe('persistence', function() {
+        it('can flush out to disk on demand', function() {
             should.exist(null);
-            done();
+        });
+        
+        it('can rotate out slices appropriately', function() {
+            should.exist(null);
+        });
+        
+        it('can read in time slices when instantiated', function() {
+            should.exist(null);
         });
     });
     
     describe('alarms', function() {
-        it('can set basic alarms', function(done) {
-            should.exist(null);
-            done();
+        it('can fire ok -> alarm', function(done) {
+            /* If metric's average > 5.0 for 10s */
+            db.if('metric', function(time, count, avg, min, max, p) {
+                return avg > 5.0;
+            }, 10, function(metric, state) {
+                metric.name.should.equal('metric');
+                state.should.equal('alarm');
+                done();
+            });
+            /* Add enough data to trigger the alarm */
+            for (var i = 0; i < 100; ++i) {
+                db.add('metric', i, 1, i, i, i, i);
+            }
         });
         
-        it('can turn off basic alarms', function(done) {
+        it('can fire alarm -> ok', function(done) {
+            /* If metric's average > 5.0 for 10s */
+            db.if('metric', function(time, count, avg, min, max, p) {
+                return avg > 50.0;
+            }, 10, function(metric, state) {
+                metric.name.should.equal('metric');
+                if (state == 'ok') {
+                    done();
+                }
+            });
+            /* Add enough data to trigger the alarm */
+            for (var i = 0; i < 100; ++i) {
+                db.add('metric', i, 1, 100 - i, 0, 0, 0);
+            }
+        });
+        
+        it('can turn be turned off', function(done) {
+            var a = db.if('metric', function(time, count, avg, min, max, p) {
+                return avg > 5.0;
+            }, 10, function(metric) {
+                /* Designed to fail -- should not be invoked */
+                metric.name.should.equal('not-metric');
+            });
+            /* Turn off the alarm */
+            a.off();
+            /* Add enough data to trigger the alarm */
+            for (var i = 0; i < 100; ++i) {
+                db.add('metric', i, 1, 100, 100, 100, 100);
+            }
+            setTimeout(function() { done(); }, 10);
+        });
+    });
+    
+    describe('complex alarms', function() {
+        it('can fire ok -> alarm', function(done) {
+            /* Create the metric ahead of time */
+            var m = db.metric('metric/a');
+            var a = db.if('metric/*', function(time, count, avg, min, max, p) {
+                return avg > 50.0;
+            }, 10, function(metric, state) {
+                metric.name.should.equal('metric/a');
+                state.should.equal('alarm');
+                done();
+            });
+            /* Add enough data to trigger the alarm */
+            for (var i = 0; i < 100; ++i) {
+                db.add('metric/a', i, 1, i, 0, 0, 0);
+            }
+        });
+        
+        it('can fire alarm -> ok', function(done) {
+            /* Create the metric ahead of time */
+            var m = db.metric('metric/a');
+            var a = db.if('metric/*', function(time, count, avg, min, max, p) {
+                return avg > 50.0;
+            }, 10, function(metric, state) {
+                metric.name.should.equal('metric/a');
+                if (state == 'ok') {
+                    done();
+                }
+            });
+            /* Add enough data to trigger the alarm */
+            for (var i = 0; i < 100; ++i) {
+                db.add('metric/a', i, 1, 100 - i, 0, 0, 0);
+            }
+        });
+        
+        it('can be turned off', function(done) {
+            db.metric('metric/a');
+            var a = db.if('metric/*', function(time, count, avg, min, max, p) {
+                return avg > 5.0;
+            }, 10, function(metric) {
+                /* Designed to fail -- should not be invoked */
+                metric.name.should.equal('not-metric');
+            });
+            /* Turn off the alarm */
+            a.off();
+            /* Add enough data to trigger the alarm */
+            for (var i = 0; i < 100; ++i) {
+                db.add('metric/a', i, 1, 100, 100, 100, 100);
+            }
+            setTimeout(function() { done(); }, 10);
+        });
+        
+        it('can listen for new metrics', function(done) {
+            /* Ensure the metric doesn't exist ahead of time */
+            db.remove('metric/a');
+            var a = db.if('metric/*', function(time, count, avg, min, max, p) {
+                return avg > 5.0;
+            }, 10, function(metric) {
+                metric.name.should.equal('metric/a');
+                done();
+            });
+            /* Create the metric real quick, and then we'll add some data */
+            db.metric('metric/a');
+            process.nextTick(function() {
+                /* Add enough data to trigger the alarm */
+                for (var i = 0; i < 100; ++i) {
+                    db.add('metric/a', i, 1, 100, 100, 100, 100);
+                }
+            });
+        });
+        
+        it('can listen for removed metrics', function(done) {
+            /* Make a metric, set up an alarm */
+            db.metric('metric/a');
+            var a = db.if('metric/*', function() {
+                return false;
+            }, 10, function(metric) {
+                /* Meant to fail -- should not be invoked */
+                should.exist(null);
+            });
+            a.watchers.should.have.keys('metric/a');
+            db.remove('metric/a');
+            setTimeout(function() {
+                a.watchers.should.not.have.keys('metric/a');
+                done();
+            }, 10);
+        });
+        
+        it('can list all the existing alarms', function() {
             should.exist(null);
-            done();
+        });
+        
+        it('can list all the alarms for a metric', function() {
+            should.exist(null);
         });
     });
     
@@ -130,6 +369,44 @@ describe('DB', function() {
         
         it('has metrics inherit its configuration', function() {
             should.exist(null);
+        });
+    });
+    
+    describe('glob', function() {
+        it('can find metrics based on globs', function() {
+            /* Let's insert a variety of metrics and make sure that they all 
+             * turn up as we'd expect */
+            db.metric('a/b/c/d');
+            db.metric('a/b/c/e');
+            db.metric('a/c/c/d');
+            db.metric('b/b/c/d');
+            db.metric('a/d');
+            db.metric('held');
+            db.metric('help');
+            
+            var expected = {
+                'a/*'    : ['a/b', 'a/c', 'a/d'],
+                'a/**'   : ['a/b', 'a/c', 'a/d', 'a/b/c', 'a/c/c', 'a/b/c/d',
+                            'a/b/c/e', 'a/c/c/d'],
+                'a/*/c/d': ['a/b/c/d', 'a/c/c/d'],
+                'a/**/d' : ['a/b/c/d', 'a/c/c/d'],
+                '*/b/c/*': ['a/b/c/d', 'a/b/c/e', 'b/b/c/d'],
+                '**/d'   : ['a/b/c/d', 'a/c/c/d', 'b/b/c/d', 'a/d'],
+                '**d'    : ['a/b/c/d', 'a/c/c/d', 'b/b/c/d', 'a/d', 'held'],
+                '*d'     : ['held'],
+                'hel*'   : ['help', 'held'],
+                'help'   : ['help']
+            };
+            
+            for (var g in expected) {
+                var returned = db.find(g);
+                for (var i in returned) {
+                    returned[i] = returned[i].name;
+                }
+                returned.sort();
+                expected[g].sort();
+                returned.should.eql(expected[g]);
+            }
         });
     });
 });

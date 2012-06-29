@@ -264,6 +264,36 @@ describe('DB', function() {
             }
             setTimeout(function() { done(); }, 10);
         });
+        
+        it('can list all the existing alarms', function() {
+            db.alarms.length.should.equal(0);
+            var alarm = db.if('metric/a', function() {
+                return false;
+            }, 10, function(metric) {
+                should.exist(null);
+            });
+            /* Let's make sure that the database has a record of this alarm */
+            db.alarms.length.should.equal(1);
+            db.alarms[0].should.equal(alarm);
+            alarm.off();
+            db.alarms.length.should.equal(0);
+        });
+        
+        it('can list all the alarms for a metric', function() {
+            var metric = db.metric('metric/a');
+            var alarm  = db.if('metric/a', function() {
+                return false;
+            }, 10, function(metric) {
+                should.exist(null);
+            });
+            /* Let's make sure the metric knows about the alarm */
+            metric.alarms.length.should.equal(1);
+            metric.alarms[0].pattern.should.equal('metric/a');
+            /* Now let's turn the alarm off and make sure it disappears from the 
+             * metric as well */
+            alarm.off();
+            metric.alarms.length.should.equal(0);
+        });
     });
     
     describe('complex alarms', function() {
@@ -354,11 +384,33 @@ describe('DB', function() {
         });
         
         it('can list all the existing alarms', function() {
-            should.exist(null);
+            db.alarms.length.should.equal(0);
+            var alarm = db.if('metric/*', function() {
+                return false;
+            }, 10, function(metric) {
+                should.exist(null);
+            });
+            /* Let's make sure that the database has a record of this alarm */
+            db.alarms.length.should.equal(1);
+            db.alarms[0].should.equal(alarm);
+            alarm.off();
+            db.alarms.length.should.equal(0);
         });
         
         it('can list all the alarms for a metric', function() {
-            should.exist(null);
+            var metric = db.metric('metric/a');
+            var alarm  = db.if('metric/*', function() {
+                return false;
+            }, 10, function(metric) {
+                should.exist(null);
+            });
+            /* Let's make sure the metric knows about the alarm */
+            metric.alarms.length.should.equal(1);
+            metric.alarms[0].pattern.should.equal('metric/*');
+            /* Now let's turn the alarm off and make sure it disappears from the 
+             * metric as well */
+            alarm.off();
+            metric.alarms.length.should.equal(0);
         });
     });
     

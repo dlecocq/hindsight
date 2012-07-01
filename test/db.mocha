@@ -26,7 +26,7 @@ describe('DB', function() {
     });
     
     describe('metrics', function() {
-        it('should instantiate metrics as needed', function() {
+        it('should be instantiated as needed', function() {
             /* Instantiates */
             var m = db.metric('widget');
             should.exist(m);
@@ -34,13 +34,13 @@ describe('DB', function() {
             db.metric('widget').should.eql(m);
         });
         
-        it('knows its own name and database', function() {
+        it('know its own name and database', function() {
             var m = db.metric('widget');
             m.name.should.equal('widget');
             m.db.should.equal(db);
         });
         
-        it('can remove single metrics', function() {
+        it('can be removed', function() {
             /* A metric should be correctly removed (from its parent) */
             var m = db.metric('widget/bar');
             m.parent.name.should.equal(db.metric('widget').name);
@@ -51,7 +51,40 @@ describe('DB', function() {
             db.metric('widget').children.length.should.equal(0);
         });
         
-        it('can recursively remove children', function() {
+        it('can clean up its files after itself', function(done) {
+            /* When a metric is removed, it should clean up its directories */
+            var m = db.metric('metric');
+            fs.statSync('test/metric').isDirectory().should.be.true;
+            /* Remove it, look for directory, bearing in mind that it's remove 
+             * asynchronously */
+            db.remove('metric');
+            fs.statSync('test/metric').isDirectory().should.be.true;
+            setTimeout(function() {
+                try {
+                    fs.statSync('test/metric').isDirectory().should.be.false;
+                } catch(e) {
+                    should.exist(true);
+                    done();
+                }
+            }, 10);
+        });
+        
+        it('should create its directory on instantiation', function() {
+            /* When a metric is created, it should make a director for itself */
+            try {
+                /* This should fail */
+                fs.statSync('test/metric').isDirectory().should.be.false;
+            } catch (e) {
+                /* We expect the above to fall through to here */
+                should.exist(true);
+            }
+            /* Now, let's create a metric, and then its directory should now 
+             * appear */
+            db.metric('metric');
+            fs.statSync('test/metric').isDirectory().should.be.true;
+        });
+        
+        it('can be recursively removed', function() {
             for (var i = 0; i < 10; i++) {
                 var m = db.metric('widget/' + i);
             }
@@ -60,13 +93,13 @@ describe('DB', function() {
             db.metric('widget').children.length.should.equal(0);
         });
         
-        it('can remove non-existent metrics', function() {
+        it('can be removed if they dont exist', function() {
             var m = db.metric('widget');
             db.remove('widget');
             db.remove('widget');
         });
         
-        it('cannot remove a metric with children', function() {
+        it('cannot be removed with children', function() {
             var m = db.metric('widget');
             for (var i = 0; i < 10; i++) {
                 var n = db.metric('widget/' + i);
@@ -173,47 +206,116 @@ describe('DB', function() {
             db.add('foo', 1, 2, 3, 4, 5, 6);
         });
         
-        it('can get data out of a metric', function() {
+        it('can get data out of the buffer', function(done) {
             db.add('foo', 1, 2, 3, 4, 5, 6);
-            db.get('foo', 0, 10).should.eql([
-                [1, 2, 3, 4, 5, 6]
-            ]);
+            db.get('foo', 0, 10, function(d) {
+                d.should.eql([[1, 2, 3, 4, 5, 6]]);
+                done();
+            });
         });
         
-        it('can get a range of data', function() {
+        it('can get data out of time slices', function(done) {
+            /* Add a bunch of data, and then rotate the metric, and that should 
+             * mean we're able to get the data therein */
+            for (var i = 0; i < 10000; ++i) {
+                db.add('foo', i, 2, 3, 4, 5, 6);
+            }
+            db.metric('foo').flush(function() {
+                /* Make sure that the metric actually /did/ create files. In 
+                 * particular, we should at least see a slice for 0 */
+                fs.statSync('test/foo/0').isFile().should.be.true;
+                db.get('foo', 100, 100, function(d) {
+                    d.should.eql([[100, 2, 3, 4, 5, 6]]);
+                    done();
+                });
+            });
+        });
+        
+        it('can get a range of data', function(done) {
             for (var i = 0; i < 100; ++i) {
                 db.add('foo', i, 2, 3, 4, 5, 6);
             }
-            var results = db.get('foo', 40, 50);
-            results.length.should.equal(11);
-            for (var i = 0; i < 11; ++i) {
-                results[i][0].should.equal(i+40);
-            }
+            db.get('foo', 40, 50, function(results) {
+                results.length.should.equal(11);
+                for (var i = 0; i < 11; ++i) {
+                    results[i][0].should.equal(i+40);
+                }
+                done();
+            });
         });
         
-        it('adds data to parent metrics', function() {
+        it('adds data to parent metrics', function(done) {
             for (var i = 0; i < 100; ++i) {
                 for (var j = 0; j < 10; ++j) {
                     db.add('foo/' + j, i, 2, 3, 4, 5, 6);
                 }
             }
-            var results = db.get('foo', 40, 50);
-            /* Data from each of the children */
-            results.length.should.equal(110);
+            db.get('foo', 40, 50, function(results) {
+                /* Data from each of the children */
+                results.length.should.equal(110);
+                done();
+            });
         });
     });
     
     describe('persistence', function() {
-        it('can flush out to disk on demand', function() {
-            should.exist(null);
+        it('can flush out to disk on demand', function(done) {
+            try {
+                fs.statSync('test/foo/1').isFile().should.be.false;
+            } catch(e) {
+                should.exist(true);
+            }
+            db.add('foo', 1, 2, 3, 4, 5, 6);
+            db.metric('foo').flush(function() {
+                fs.statSync('test/foo/1').isFile().should.be.true;
+                done();
+            });
+        });
+        
+        it('adds new intervals to timestamps when flushing', function(done) {
+            /* After flushing a bunch of data, we should see new timestamps */
+            db.metric('foo').timestamps.length.should.equal(0);
+            for (var i = 0; i < 10000; ++i) {
+                db.add('foo', i, 2, 3, 4, 5, 6);
+            }
+            db.metric('foo').flush(function() {
+                db.metric('foo').timestamps.length.should.equal(25);
+                done();
+            });
         });
         
         it('can rotate out slices appropriately', function() {
             should.exist(null);
         });
         
-        it('can read in time slices when instantiated', function() {
-            should.exist(null);
+        it('can read in time slices when instantiated', function(done) {
+            /* First, add a bunch of data to the metric and then rotate it */
+            for (var i = 0; i < 10000; ++i) {
+                db.add('foo', i, 2, 3, 4, 5, 6);
+            }
+            db.metric('foo').flush(function() {
+                var db2 = new hindsight.DB('test');
+                var m   = db2.metric('foo');
+                /* Let's give a chance to read the directory */
+                setTimeout(function() {
+                    m.timestamps.length.should.equal(25);
+                    done();
+                }, 10);
+            });
+        });
+        
+        it('can read in child metrics when instantiated', function(done) {
+            /* Add some metrics */
+            var m = db.metric('foo/bar/baz');
+            var db2 = new hindsight.DB('test');
+            m = db2.metric('foo');
+            setTimeout(function() {
+                m.children.length.should.equal(1);
+                m.children[0].name.should.equal('foo/bar');
+                m.children[0].children.length.should.equal(1);
+                m.children[0].children[0].name.should.equal('foo/bar/baz');
+                done();
+            }, 10);
         });
     });
     

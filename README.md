@@ -90,7 +90,7 @@ mileage out of graphite. I just think we can do better._
 2. __A lack of comments.__ I initially tried to look at the ceres code base to 
     see where I might fiddle with it and/or see where I might try to make things
     faster, and while the database may be 600 lines of code, I'd much prefer if 
-    it were longer and more verbose.
+    it were commented.
 3. __Events.__ I want events for my database. I'd like it to be extensible and 
     embeddable. By this, I mean, I'd like to write simple callbacks for events 
     like new metrics, deleted metrics, new data added to a particular metric, 

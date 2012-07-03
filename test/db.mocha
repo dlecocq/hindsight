@@ -93,10 +93,11 @@ describe('DB', function() {
             db.metric('widget').children.length.should.equal(0);
         });
         
-        it('can be removed if they dont exist', function() {
+        it('can be removed if they dont exist', function(done) {
             var m = db.metric('widget');
             db.remove('widget');
             db.remove('widget');
+            setTimeout(done, 10);
         });
         
         it('cannot be removed with children', function() {
